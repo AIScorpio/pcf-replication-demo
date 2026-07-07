@@ -753,20 +753,22 @@ var COL={ 'Qwen2-7B':'#0E7C6B', 'Llama-3.1-8B':'#B0761F' };
 /* C2 — Exp2 dose panels */
 (function(){
   var host=document.getElementById('c2-svg'), tools=document.getElementById('c2-tools'); if(!host) return;
-  var on={'Qwen2-7B':true,'Llama-3.1-8B':true}; var delta=false;
+  var on={'Qwen2-7B':true,'Llama-3.1-8B':true}; var delta=true;
   Object.keys(on).forEach(function(m){
     var b=document.createElement('button'); b.textContent='▉ '+m+'  (slope '+DATA.exp2[m].slope+' pp/nat)';
     b.className='on'; b.style.color=COL[m]; b.style.borderColor=COL[m]; b.style.fontWeight='600'; b.style.background='#fff';
     b.onclick=function(){ on[m]=!on[m]; b.style.opacity=on[m]?'1':'.35'; draw(); };
     tools.appendChild(b);
   });
-  (function(){ var b=document.createElement('button'); b.textContent='Δ vs dose 0 (enables PAPER head-to-head)';
+  (function(){ var b=document.createElement('button');
+    function relabel(){
+      b.textContent = delta ? 'View: change vs dose 0 — paper head-to-head · click for raw levels'
+                            : 'View: raw levels — ours only (paper publishes no levels) · click for head-to-head';
+      b.className = delta ? 'on' : '';
+    }
     b.style.fontWeight='600';
-    b.onclick=function(){ delta=!delta; b.className=delta?'on':''; draw(); };
-    tools.appendChild(b);
-    var n=document.createElement('span'); n.style.cssText='font-size:11.5px;color:#5A6B7A';
-    n.textContent='paper publishes only CHANGES (dose 0→3): −0.375 nats/chunk · halluc −17.6pp · answer +37.5pp · acc +45.6pp → shown as black dashed in Δ view';
-    tools.appendChild(n); })();
+    b.onclick=function(){ delta=!delta; relabel(); draw(); };
+    relabel(); tools.appendChild(b); })();
   var P=[['budget','information budget Δ̄ (nats)'],['halluc','hallucination rate'],['answer','answer rate'],['acc','accuracy on attempts']];
   var W=1080,H=520,cw=W/2,ch=H/2;
   function draw(){
@@ -783,7 +785,12 @@ var COL={ 'Qwen2-7B':'#0E7C6B', 'Llama-3.1-8B':'#B0761F' };
       if(pline) pline.forEach(function(v){vmax=Math.max(vmax,v);vmin=Math.min(vmin,v);});
       var pad=(vmax-vmin)*0.12||0.1; vmax+=pad; vmin-=pad;
       function syp(v){ return Bm-(v-vmin)/(vmax-vmin)*(Bm-T); }
-      var tt=el('text',{x:ox+cw/2,y:oy+18,'text-anchor':'middle','font-size':13,'font-weight':600,fill:'#16232E'}); tt.textContent=(delta?'\u0394 ':'')+pn[1]; svg.appendChild(tt);
+      var tt=el('text',{x:ox+cw/2,y:oy+18,'text-anchor':'middle','font-size':13,'font-weight':600,fill:'#16232E'}); tt.textContent=(delta?'change vs dose 0 — ':'')+pn[1]; svg.appendChild(tt);
+      if(delta && pn[0]==='answer'){
+        var wn=el('text',{x:ox+cw/2,y:oy+ch-44,'text-anchor':'middle','font-size':11.5,'font-weight':600,fill:'#B3261E'});
+        wn.textContent='⚠ directions differ: paper rises +37.5pp, ours falls — the one non-replicated direction (see guide)';
+        svg.appendChild(wn);
+      }
       [0,1,2,3].forEach(function(d){ var x=L+d/3*(Rt-L);
         svg.appendChild(el('line',{x1:x,y1:T,x2:x,y2:Bm,stroke:'#EDF1F4'}));
         var t=el('text',{x:x,y:Bm+16,'text-anchor':'middle','font-size':11,fill:'#5A6B7A'}); t.textContent='dose '+d; svg.appendChild(t); });
@@ -805,12 +812,66 @@ var COL={ 'Qwen2-7B':'#0E7C6B', 'Llama-3.1-8B':'#B0761F' };
         svg.appendChild(el('polyline',{points:pts.map(function(p){return p.join(',');}).join(' '),fill:'none',stroke:COL[m],'stroke-width':2.4}));
         pts.forEach(function(p,d){
           var c=el('circle',{cx:p[0],cy:p[1],r:4.5,fill:COL[m]});
-          c.addEventListener('mouseenter',function(ev){ tip(ev.pageX,ev.pageY,m+'\ndose '+d+'\n'+(delta?'\u0394 ':'')+pn[1]+' = '+(delta?(arr[d]>=0?'+':'')+arr[d].toFixed(3):raw[d])); });
+          c.addEventListener('mouseenter',function(ev){ tip(ev.pageX,ev.pageY,m+'\ndose '+d+'\n'+(delta?'change vs dose 0 in ':'')+pn[1]+' = '+(delta?(arr[d]>=0?'+':'')+arr[d].toFixed(3):raw[d])); });
           c.addEventListener('mouseleave',untip); svg.appendChild(c);
         });
       });
     });
     host.appendChild(svg);
+    drawDosePanel();
+  }
+  function drawDosePanel(){
+    var old=document.getElementById('c2-slopes'); if(old) old.remove();
+    var wrap=document.createElement('div'); wrap.id='c2-slopes';
+    host.appendChild(wrap);
+
+    /* plain-language reading guide */
+    var guide=document.createElement('div');
+    guide.style.cssText='margin:14px 0 4px;padding:12px 16px;background:#F4F7F9;border-left:3px solid #0E7C6B;font-size:13px;line-height:1.6;color:#16232E';
+    guide.innerHTML=
+      '<b>How to read these panels.</b> “Dose” = how many of the 4 evidence chunks actually contain the answer (0–3); prompt length is held fixed, so this is a randomized experiment on evidence quality. '
+     +'The default view is <b>“change vs dose 0”</b>: every curve is shifted to start at 0, and each point answers “compared with giving the model <i>no</i> supporting evidence, how much did this metric move after giving it 1, 2 or 3 supporting chunks?” '
+     +'That is the only format the paper reports Exp 2 in — net 0→3 changes and slopes, never raw per-dose values — so the <b>black dashed paper lines exist only in this view</b> '
+     +'(budget panel: the paper’s −0.375 nats per added chunk at every dose; the other three panels: just two paper points, dose 0 and dose 3, because that is all the paper publishes). '
+     +'Solid colored lines = our two models, same colors as everywhere on this page. The “raw levels” view (toggle above) shows our absolute values — the paper has no lines there because it publishes none.'
+     +'<br><b>Verdict in one line:</b> three of the four directions replicate with CIs excluding 0 — more supporting evidence → information budget falls, hallucination falls, accuracy rises — and our effects are <i>steeper</i> than the paper’s (forest below). '
+     +'The one direction that does <b>not</b> replicate is <b>answer rate</b> (bottom-left): paper +37.5pp, ours −12.0pp (Qwen) / −2.2pp (Llama) — at high dose our models become over-confident and the gate abstains more, the same calibration geometry diagnosed in Exp 3; the paper’s rising answer rate hinges on its unpublished h* and prompt.';
+    wrap.appendChild(guide);
+
+    /* forest: hallucination dose-response slope, paper vs ours */
+    var rows=[
+      {lab:'PAPER · Qwen2-7B', v:-12.7, who:'paper', m:'Qwen2-7B', src:'paper §4.3 / Figure 2 (no CI published)'},
+      {lab:'PAPER · Llama-3.1-8B (validation)', v:-11.0, who:'paper', m:'Llama-3.1-8B', src:'paper Appendix D: β ≈ 0.110 per nat (no CI published)'},
+      {lab:'OURS · Qwen2-7B (4-bit)', v:DATA.exp2['Qwen2-7B'].slope, lo:DATA.exp2['Qwen2-7B'].lo, hi:DATA.exp2['Qwen2-7B'].hi, who:'ours', m:'Qwen2-7B', src:'exp2_paper.json (frozen run)'},
+      {lab:'OURS · Llama-3.1-8B (4-bit)', v:DATA.exp2['Llama-3.1-8B'].slope, lo:DATA.exp2['Llama-3.1-8B'].lo, hi:DATA.exp2['Llama-3.1-8B'].hi, who:'ours', m:'Llama-3.1-8B', src:'exp2_paper.json (frozen run)'}];
+
+    var W=1080, L=250, Rp=70, T=30, rowH=34, H=T+rows.length*rowH+44;
+    var svg=el('svg',{viewBox:'0 0 '+W+' '+H});
+    var tt=el('text',{x:L,y:16,'font-size':13.5,'font-weight':600,fill:'#16232E'});
+    tt.textContent='Head-to-head: hallucination dose-response slope (pp of hallucination per nat of budget)';
+    svg.appendChild(tt);
+    var xmin=-90, xmax=0;
+    function sxp(v){ return L+(v-xmin)/(xmax-xmin)*(W-L-Rp); }
+    [-80,-60,-40,-20,0].forEach(function(v){
+      svg.appendChild(el('line',{x1:sxp(v),y1:T,x2:sxp(v),y2:T+rows.length*rowH,stroke:'#EDF1F4'}));
+      var t=el('text',{x:sxp(v),y:T+rows.length*rowH+16,'text-anchor':'middle','font-size':11,fill:'#5A6B7A'}); t.textContent=v; svg.appendChild(t);
+    });
+    rows.forEach(function(r,i){
+      var y=T+rowH*i+rowH/2;
+      if(r.who==='ours'){ svg.appendChild(el('rect',{x:0,y:T+rowH*i,width:W,height:rowH,fill:'#0E7C6B','fill-opacity':.05})); }
+      var col=COL[r.m];
+      var lb=el('text',{x:L-10,y:y+4,'text-anchor':'end','font-size':12.5,fill:'#16232E','font-weight':r.who==='ours'?700:400}); lb.textContent=r.lab; svg.appendChild(lb);
+      svg.appendChild(el('line',{x1:sxp(0),y1:y,x2:sxp(r.v),y2:y,stroke:col,'stroke-width':1.2,'stroke-opacity':.4}));
+      if(r.lo!=null){ svg.appendChild(el('line',{x1:sxp(r.lo),y1:y,x2:sxp(r.hi),y2:y,stroke:col,'stroke-width':3})); }
+      var c=el('circle',{cx:sxp(r.v),cy:y,r:6.5,fill:r.who==='ours'?col:'#fff',stroke:col,'stroke-width':2.4});
+      c.addEventListener('mouseenter',function(ev){ tip(ev.pageX,ev.pageY,r.lab+'\nslope = '+r.v+' pp/nat'+(r.lo!=null?'\n95% CI ['+r.lo+', '+r.hi+']':'\nno CI published')+'\nsource: '+r.src); });
+      c.addEventListener('mouseleave',untip); svg.appendChild(c);
+      var vl=el('text',{x:sxp(r.v),y:y-10,'text-anchor':'middle','font-size':11.5,fill:'#3D4E5C','font-weight':r.who==='ours'?700:400}); vl.textContent=r.v; svg.appendChild(vl);
+    });
+    var xl=el('text',{x:(L+W-Rp)/2,y:H-4,'text-anchor':'middle','font-size':12,fill:'#5A6B7A'});
+    xl.textContent='more negative = stronger causal cut in hallucination per nat of information budget · same direction as the paper, steeper magnitude · hover a dot for CI & source';
+    svg.appendChild(xl);
+    wrap.appendChild(svg);
   }
   draw();
 })();
